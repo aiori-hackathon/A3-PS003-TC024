@@ -1,7 +1,7 @@
 """Reproducible real-dataset baseline and partition audit.
 
-Run from the project root with ``python3 -m src.experiment``. No network or
-data other than dataset/pune_traffic.csv is used.
+Run from the repository root with ``python3 -m aiml.src.experiment``. No
+network or data other than aiml/dataset/pune_traffic.csv is used.
 """
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ import pandas as pd
 import torch
 from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, mean_squared_error
 
-from src.data_utils import DEFAULT_DATA_PATH, partition_clients, prepare_data
-from src.models import CongestionMLP, predict, seed_everything, train_local
+from aiml.src.data_utils import DEFAULT_DATA_PATH, partition_clients, prepare_data
+from aiml.src.models import CongestionMLP, predict, seed_everything, train_local
 
 
 def metrics(y_true: np.ndarray, raw: np.ndarray) -> dict[str, float]:
@@ -145,11 +145,11 @@ if __name__ == "__main__":
         "split_method", "global_fallback_cutoff", "train_hour_range", "test_hour_range",
         "train_rows", "test_rows", "stops_total", "stops_split_per_stop",
         "stops_single_time_fallback", "stops_appearing_in_both")})
-    print("Per-stop train/test row counts written to results/per_stop_split_counts.csv")
+    print("Per-stop train/test row counts written to aiml/results/per_stop_split_counts.csv")
     print("\nPer-client training sample counts and class distributions by seed:")
     print(distribution_frame.to_string(index=False))
     print("\nMean and sample standard deviation across seeds:")
     print(pd.DataFrame(summary_rows).to_string(index=False))
-    print("\nPer-client results written to results/local_client_metrics.csv")
-    print("Per-client mean/std across seeds written to results/local_client_summary.csv")
-    print("Summary written to results/summary_metrics.csv")
+    print("\nPer-client results written to aiml/results/local_client_metrics.csv")
+    print("Per-client mean/std across seeds written to aiml/results/local_client_summary.csv")
+    print("Summary written to aiml/results/summary_metrics.csv")

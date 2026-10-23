@@ -13,8 +13,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from src.data_utils import DEFAULT_DATA_PATH, prepare_data
-from src.models import CongestionMLP, predict, seed_everything, train_local
+from aiml.src.data_utils import DEFAULT_DATA_PATH, prepare_data
+from aiml.src.models import CongestionMLP, predict, seed_everything, train_local
 
 ROOT = Path(__file__).resolve().parents[1]
 RESULTS = ROOT / "results"
