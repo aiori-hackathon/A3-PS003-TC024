@@ -6,9 +6,9 @@ import pandas as pd
 import pytest
 import torch
 
-from src.data_utils import LABEL_MAP, load_clean_data, partition_clients, prepare_data
-from src.experiment import metrics
-from src.models import CongestionMLP, predict, train_local
+from aiml.src.data_utils import LABEL_MAP, load_clean_data, partition_clients, prepare_data
+from aiml.src.experiment import metrics
+from aiml.src.models import CongestionMLP, predict, train_local
 
 
 def test_timestamp_parsing_missing_handling_and_repeated_pairs(tmp_path: Path):

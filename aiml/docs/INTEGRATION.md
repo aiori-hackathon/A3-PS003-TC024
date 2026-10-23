@@ -2,7 +2,7 @@
 
 ## Dataset, split, and constraints
 
-The only experiment source is `dataset/pune_traffic.csv`. The CSV contains
+The only experiment source is `aiml/dataset/pune_traffic.csv`. The CSV contains
 time-of-day but no date. Original row order is not reliably chronological
 within stops: after cleaning, 3,606 stops have multiple rows, only 904 are
 nondecreasing by time-of-day, and there are 24,109 reversals among 62,232
@@ -21,7 +21,7 @@ Because dates are unavailable, even the per-stop split is a later-clock-time
 holdout, not a verified future-date forecast. Overall ranges overlap across
 stops: train spans 09:00:00-18:16:55; test spans 09:05:27-18:19:35. Each
 per-stop cutoff and its row counts/ranges are recorded in
-`results/per_stop_split_counts.csv`.
+`aiml/results/per_stop_split_counts.csv`.
 
 ## Speed and target relationship
 
@@ -45,7 +45,7 @@ vocabulary is fit from training data only; test-only origins map to zeros.
 ## Data and client interfaces
 
 ```python
-from src.data_utils import prepare_data, partition_clients
+from aiml.src.data_utils import prepare_data, partition_clients
 
 prepared = prepare_data(path, seed=42, test_fraction=0.2)
 # X_train: float32 Tensor [n_train, input_dim]
@@ -67,7 +67,7 @@ permutation and round-robin assignment. Location-based Non-IID sorts the
 training origins and assigns each whole origin round-robin to one client.
 Both scenarios contain exactly the same training examples once. The runner
 prints per-client sample counts and ordinal class distributions and saves all
-seed/client counts in `results/client_distributions.csv`.
+seed/client counts in `aiml/results/client_distributions.csv`.
 
 The seed changes IID assignments and model initialization. The split is
 seed-independent; location-based assignments are deterministic from sorted
@@ -78,7 +78,7 @@ IID, the same seed.
 ## Model and FedAvg update size
 
 ```python
-from src.models import CongestionMLP, train_local, predict
+from aiml.src.models import CongestionMLP, train_local, predict
 
 model = CongestionMLP(input_dim, hidden_sizes=(32, 16), dropout=0.0)
 train_local(model, X_client, y_client, epochs=60,
@@ -113,7 +113,7 @@ This workspace has no `config.py`. Suggested federated config mapping:
 
 | Key | Value |
 |---|---|
-| `data_path` | `dataset/pune_traffic.csv` |
+| `data_path` | `aiml/dataset/pune_traffic.csv` |
 | `seed` | `42`, `123`, or `456` |
 | `test_fraction` | `0.2` target per stop; nearest attainable cutoff |
 | `n_clients` | `4` default; allowed 3-5 |
@@ -127,10 +127,10 @@ This workspace has no `config.py`. Suggested federated config mapping:
 
 Centralized and client-local MLPs use the same architecture, loss, epochs,
 and learning rate. Each local model is evaluated on the shared full test set.
-Per-seed/per-client metrics are in `results/local_client_metrics.csv`; the
+Per-seed/per-client metrics are in `aiml/results/local_client_metrics.csv`; the
 centralized, local-only, and reference summary is in
-`results/summary_metrics.csv`. Per-client split counts and hour ranges are in
-`results/per_stop_split_counts.csv`. The local partition score is an
+`aiml/results/summary_metrics.csv`. Per-client split counts and hour ranges are in
+`aiml/results/per_stop_split_counts.csv`. The local partition score is an
 unweighted mean of client metrics per seed; cross-seed standard deviation is
 the sample standard deviation. These are not federated results. FedAvg,
 convergence tracking, and communication accounting remain for the federated
