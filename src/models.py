@@ -38,20 +38,40 @@ def seed_everything(seed: int) -> None:
 
 
 def train_local(model: CongestionMLP, X: torch.Tensor, y: torch.Tensor, *,
-                epochs: int = 10, learning_rate: float = 1e-3, loss_name: str = "huber") -> list[float]:
-    """Train a local client model and return epoch mean losses."""
+                epochs: int = 10, learning_rate: float = 1e-3, loss_name: str = "huber",
+                batch_size: int | None = None) -> list[float]:
+    """Train a local client model and return sample-weighted epoch losses.
+
+    ``batch_size=None`` preserves full-batch training. A positive batch size
+    enables shuffled mini-batch updates for larger client datasets.
+    """
     if loss_name not in {"huber", "mse"}:
         raise ValueError("loss_name must be 'huber' or 'mse'")
+    if epochs < 1:
+        raise ValueError("epochs must be positive")
+    if batch_size is not None and batch_size < 1:
+        raise ValueError("batch_size must be positive or None")
+    if len(X) == 0 or len(X) != len(y):
+        raise ValueError("X and y must have equal, non-zero lengths")
     criterion = nn.HuberLoss() if loss_name == "huber" else nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     losses = []
     model.train()
     for _ in range(epochs):
-        optimizer.zero_grad()
-        loss = criterion(model(X), y)
-        loss.backward()
-        optimizer.step()
-        losses.append(float(loss.detach()))
+        if batch_size is None or batch_size >= len(X):
+            batches = (torch.arange(len(X), device=X.device),)
+        else:
+            order = torch.randperm(len(X), device=X.device)
+            batches = order.split(batch_size)
+        epoch_loss = 0.0
+        for indices in batches:
+            X_batch, y_batch = X[indices], y[indices]
+            optimizer.zero_grad()
+            loss = criterion(model(X_batch), y_batch)
+            loss.backward()
+            optimizer.step()
+            epoch_loss += float(loss.detach()) * len(indices) / len(X)
+        losses.append(epoch_loss)
     return losses
 
 

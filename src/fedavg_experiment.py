@@ -14,8 +14,9 @@ import pandas as pd
 import torch
 
 from src.data_utils import DEFAULT_DATA_PATH, partition_clients, prepare_data
-from src.experiment import metrics
-from src.fedavg import communication_bytes_per_round, run_fedavg
+from src.communication import communication_cost_per_round, communication_cost_total
+from src.evaluation import evaluate_per_client, metrics
+from src.federated import run_fedavg
 from src.models import predict, seed_everything
 
 
@@ -56,12 +57,14 @@ def _client_distribution(seed: int, mode: str, clients: dict) -> list[dict]:
     return rows
 
 
-def run(seed: int, *, rounds: int, local_epochs: int) -> tuple[list[dict], list[dict], list[dict]]:
+def run(seed: int, *, rounds: int, local_epochs: int,
+        batch_size: int | None = None) -> tuple[list[dict], list[dict], list[dict], list[dict]]:
     data = prepare_data(DEFAULT_DATA_PATH, seed=seed, test_fraction=0.2)
     seed_everything(seed)
     seed_rows = _reference_rows(data, seed)
     round_rows: list[dict] = []
     distribution_rows: list[dict] = []
+    client_metric_rows: list[dict] = []
     truth = data.y_test.numpy().reshape(-1)
 
     partitions = {
@@ -87,13 +90,27 @@ def run(seed: int, *, rounds: int, local_epochs: int) -> tuple[list[dict], list[
             seed=seed,
             rounds=rounds,
             local_epochs=local_epochs,
+            batch_size=batch_size,
             learning_rate=0.01,
             loss_name="huber",
         )
         # Use the same sklearn metric implementation as centralized/local baselines.
         predictions = predict(global_model, data.X_test).numpy().reshape(-1)
         final_metrics = metrics(truth, predictions)
-        per_round_bytes = communication_bytes_per_round(global_model, len(clients))
+        per_round_comm = communication_cost_per_round(global_model, len(clients))
+        total_comm = communication_cost_total(global_model, len(clients), rounds)
+        client_test_sets = partition_clients(
+            data.X_test, data.y_test, data.test_rows,
+            n_clients=N_CLIENTS, seed=seed, mode=mode,
+        )
+        for client_id, evaluated in evaluate_per_client(global_model, client_test_sets).items():
+            client_metric_rows.append({
+                "seed": seed,
+                "partition": mode,
+                "client_id": client_id,
+                "sample_count": evaluated["sample_count"],
+                **(evaluated["metrics"] or {}),
+            })
         seed_rows.append({
             "seed": seed,
             "scenario": f"fedavg_{mode}",
@@ -101,8 +118,14 @@ def run(seed: int, *, rounds: int, local_epochs: int) -> tuple[list[dict], list[
             "n_clients": len(clients),
             "rounds": rounds,
             "local_epochs": local_epochs,
-            "communication_bytes_per_round": per_round_bytes,
-            "communication_bytes_total": per_round_bytes * rounds,
+            "batch_size": batch_size,
+            "model_bytes": per_round_comm["model_bytes"],
+            "client_to_server_bytes_per_round": per_round_comm["client_to_server_bytes"],
+            "server_to_client_bytes_per_round": per_round_comm["server_to_client_bytes"],
+            "communication_bytes_per_round": per_round_comm["total_bytes"],
+            "client_to_server_bytes_total": total_comm["client_to_server_bytes"],
+            "server_to_client_bytes_total": total_comm["server_to_client_bytes"],
+            "communication_bytes_total": total_comm["total_bytes"],
             "final_local_loss": history[-1]["local_loss"],
         })
         for item in history:
@@ -110,10 +133,15 @@ def run(seed: int, *, rounds: int, local_epochs: int) -> tuple[list[dict], list[
                 "seed": seed,
                 "partition": mode,
                 **item,
-                "communication_bytes_per_round": per_round_bytes,
-                "communication_bytes_cumulative": per_round_bytes * int(item["round"]),
+                "model_bytes": per_round_comm["model_bytes"],
+                "client_to_server_bytes_per_round": per_round_comm["client_to_server_bytes"],
+                "server_to_client_bytes_per_round": per_round_comm["server_to_client_bytes"],
+                "communication_bytes_per_round": per_round_comm["total_bytes"],
+                "client_to_server_bytes_cumulative": total_comm["client_to_server_bytes"] // rounds * int(item["round"]),
+                "server_to_client_bytes_cumulative": total_comm["server_to_client_bytes"] // rounds * int(item["round"]),
+                "communication_bytes_cumulative": total_comm["total_bytes"] // rounds * int(item["round"]),
             })
-    return seed_rows, round_rows, distribution_rows
+    return seed_rows, round_rows, distribution_rows, client_metric_rows
 
 
 def _summary(seed_metrics: pd.DataFrame) -> pd.DataFrame:
@@ -136,28 +164,39 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rounds", type=int, default=60)
     parser.add_argument("--local-epochs", type=int, default=1)
+    parser.add_argument(
+        "--batch-size", type=int, default=None,
+        help="positive local mini-batch size; default None keeps full-batch training",
+    )
     args = parser.parse_args()
-    if args.rounds < 1 or args.local_epochs < 1:
-        parser.error("--rounds and --local-epochs must be positive")
+    if args.rounds < 1 or args.local_epochs < 1 or (args.batch_size is not None and args.batch_size < 1):
+        parser.error("rounds/local-epochs must be positive and batch-size must be positive when set")
 
     seed_rows: list[dict] = []
     round_rows: list[dict] = []
     distribution_rows: list[dict] = []
+    client_metric_rows: list[dict] = []
     for seed in SEEDS:
         print(f"FedAvg seed {seed}...", flush=True)
-        one_seed, one_rounds, one_distributions = run(
-            seed, rounds=args.rounds, local_epochs=args.local_epochs
+        one_seed, one_rounds, one_distributions, one_client_metrics = run(
+            seed, rounds=args.rounds, local_epochs=args.local_epochs,
+            batch_size=args.batch_size,
         )
         seed_rows.extend(one_seed)
         round_rows.extend(one_rounds)
         distribution_rows.extend(one_distributions)
+        client_metric_rows.extend(one_client_metrics)
 
     output = DEFAULT_DATA_PATH.parents[1] / "results"
     output.mkdir(exist_ok=True)
     current_seed = pd.DataFrame(seed_rows)
     current_seed.to_csv(output / "fedavg_seed_metrics.csv", index=False)
-    pd.DataFrame(round_rows).to_csv(output / "fedavg_round_metrics.csv", index=False)
-    pd.DataFrame(distribution_rows).to_csv(output / "fedavg_client_distributions.csv", index=False)
+    round_frame = pd.DataFrame(round_rows)
+    distribution_frame = pd.DataFrame(distribution_rows)
+    client_metrics_frame = pd.DataFrame(client_metric_rows)
+    round_frame.to_csv(output / "fedavg_round_metrics.csv", index=False)
+    distribution_frame.to_csv(output / "fedavg_client_distributions.csv", index=False)
+    client_metrics_frame.to_csv(output / "fedavg_client_metrics.csv", index=False)
 
     # Merge into the project's one summary table while retaining centralized and
     # local-only rows previously generated by ``python -m src.experiment``.
@@ -171,6 +210,28 @@ def main() -> None:
     else:
         combined_summary = current_summary
     combined_summary.to_csv(summary_path, index=False)
+
+    # Keep the integrated root results used by the backend while also exposing
+    # separate IID and Non-IID experiment folders for review and presentation.
+    experiments_dir = output.parent / "experiments"
+    for mode, folder in (("iid", "iid"), ("location", "non_iid")):
+        mode_dir = experiments_dir / folder
+        mode_dir.mkdir(parents=True, exist_ok=True)
+        current_seed.loc[current_seed["scenario"] == f"fedavg_{mode}"].to_csv(
+            mode_dir / "seed_metrics.csv", index=False
+        )
+        round_frame.loc[round_frame["partition"] == mode].to_csv(
+            mode_dir / "round_metrics.csv", index=False
+        )
+        client_metrics_frame.loc[client_metrics_frame["partition"] == mode].to_csv(
+            mode_dir / "client_metrics.csv", index=False
+        )
+        distribution_frame.loc[distribution_frame["partition"] == mode].to_csv(
+            mode_dir / "client_distributions.csv", index=False
+        )
+    experiments_results = experiments_dir / "results"
+    experiments_results.mkdir(parents=True, exist_ok=True)
+    combined_summary.to_csv(experiments_results / "summary_metrics.csv", index=False)
 
     print("\nFedAvg final results by seed and partition:")
     print(current_seed.loc[current_seed["scenario"].str.startswith("fedavg_")].to_string(index=False))

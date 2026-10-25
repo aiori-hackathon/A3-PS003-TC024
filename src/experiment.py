@@ -7,20 +7,10 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import torch
-from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, mean_squared_error
 
 from src.data_utils import DEFAULT_DATA_PATH, partition_clients, prepare_data
+from src.evaluation import metrics
 from src.models import CongestionMLP, predict, seed_everything, train_local
-
-
-def metrics(y_true: np.ndarray, raw: np.ndarray) -> dict[str, float]:
-    truth = np.rint(y_true).astype(int).reshape(-1)
-    prediction = np.clip(np.rint(raw), 0, 3).astype(int).reshape(-1)
-    return {"mae": float(mean_absolute_error(y_true, raw)),
-            "rmse": float(np.sqrt(mean_squared_error(y_true, raw))),
-            "accuracy_rounded": float(accuracy_score(truth, prediction)),
-            "macro_f1_rounded": float(f1_score(truth, prediction, labels=[0, 1, 2, 3], average="macro", zero_division=0))}
 
 
 def client_distribution(clients: dict) -> dict:
