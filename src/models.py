@@ -32,6 +32,9 @@ def seed_everything(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
+    # Small tabular MLPs often run faster on Windows CPU with one BLAS/OpenMP
+    # worker; large default thread pools add overhead to each full-batch step.
+    torch.set_num_threads(1)
 
 
 def train_local(model: CongestionMLP, X: torch.Tensor, y: torch.Tensor, *,

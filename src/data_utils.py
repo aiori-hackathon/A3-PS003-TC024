@@ -1,8 +1,9 @@
 """Data preparation for Pune congestion prediction.
 
-This dataset has time-of-day but no date, so this is a grouped, stratified
-holdout task, not temporal forecasting. Repeated origin/time groups are kept
-intact. Feature vocabularies are learned from training rows only.
+This dataset has time-of-day but no date, so evaluation is a later-clock-time
+holdout within each origin, not a verified future-date forecast. Repeated
+origin/time groups are kept intact. Feature vocabularies are learned from
+training rows only.
 """
 from __future__ import annotations
 

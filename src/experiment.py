@@ -136,7 +136,20 @@ if __name__ == "__main__":
             summary[f"{metric}_mean"] = float(arr.mean())
             summary[f"{metric}_std"] = float(arr.std(ddof=1))
         summary_rows.append(summary)
-    pd.DataFrame(summary_rows).to_csv(output / "summary_metrics.csv", index=False)
+    summary_frame = pd.DataFrame(summary_rows)
+    summary_path = output / "summary_metrics.csv"
+    # Keep federated rows if the FedAvg runner was already completed. The
+    # FedAvg runner refreshes these rows after each federated experiment.
+    if summary_path.is_file():
+        previous_summary = pd.read_csv(summary_path)
+        if "scenario" in previous_summary:
+            previous_federated = previous_summary[
+                previous_summary["scenario"].isin(("fedavg_iid", "fedavg_location"))
+            ]
+            summary_frame = pd.concat(
+                [summary_frame, previous_federated], ignore_index=True, sort=False
+            )
+    summary_frame.to_csv(summary_path, index=False)
     print("Per-seed centralized and baseline results:")
     print(pd.DataFrame(rows).to_string(index=False))
     split_audit = results[0]["audit"]
