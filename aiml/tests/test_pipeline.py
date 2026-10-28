@@ -6,9 +6,10 @@ import pandas as pd
 import pytest
 import torch
 
-from src.data_utils import LABEL_MAP, load_clean_data, partition_clients, prepare_data
-from src.experiment import metrics
-from src.models import CongestionMLP, predict, train_local
+from aiml.src.data_utils import LABEL_MAP, load_clean_data, partition_clients, prepare_data
+from aiml.src.experiment import metrics
+from aiml.src.federated import aggregate_state_dicts
+from aiml.src.models import CongestionMLP, predict, train_local
 
 
 def test_timestamp_parsing_missing_handling_and_repeated_pairs(tmp_path: Path):
@@ -77,14 +78,13 @@ def test_model_shapes_training_and_state_dict_compatibility():
 
 
 def test_fedavg_state_dict_average_loads_and_predicts():
-    """Test-only FedAvg compatibility check; aggregation stays outside src/."""
+    """FedAvg aggregation produces a compatible state that can predict."""
     torch.manual_seed(12)
     client_a = CongestionMLP(4, (6,))
     torch.manual_seed(34)
     client_b = CongestionMLP(4, (6,))
     states = [client_a.state_dict(), client_b.state_dict()]
-    averaged = {key: torch.stack([state[key] for state in states]).mean(dim=0)
-                for key in states[0]}
+    averaged = aggregate_state_dicts(states, sample_counts=[1, 1])
     global_model = CongestionMLP(4, (6,))
     global_model.load_state_dict(averaged)
     result = predict(global_model, torch.ones(3, 4))

@@ -1,26 +1,16 @@
 """Reproducible real-dataset baseline and partition audit.
 
-Run from the project root with ``python3 -m src.experiment``. No network or
-data other than dataset/pune_traffic.csv is used.
+Run from the repository root with ``python3 -m aiml.src.experiment``. No
+network or data other than aiml/dataset/pune_traffic.csv is used.
 """
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import torch
-from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, mean_squared_error
 
-from src.data_utils import DEFAULT_DATA_PATH, partition_clients, prepare_data
-from src.models import CongestionMLP, predict, seed_everything, train_local
-
-
-def metrics(y_true: np.ndarray, raw: np.ndarray) -> dict[str, float]:
-    truth = np.rint(y_true).astype(int).reshape(-1)
-    prediction = np.clip(np.rint(raw), 0, 3).astype(int).reshape(-1)
-    return {"mae": float(mean_absolute_error(y_true, raw)),
-            "rmse": float(np.sqrt(mean_squared_error(y_true, raw))),
-            "accuracy_rounded": float(accuracy_score(truth, prediction)),
-            "macro_f1_rounded": float(f1_score(truth, prediction, labels=[0, 1, 2, 3], average="macro", zero_division=0))}
+from aiml.src.data_utils import DEFAULT_DATA_PATH, partition_clients, prepare_data
+from aiml.src.evaluation import metrics
+from aiml.src.models import CongestionMLP, predict, seed_everything, train_local
 
 
 def client_distribution(clients: dict) -> dict:
@@ -136,7 +126,20 @@ if __name__ == "__main__":
             summary[f"{metric}_mean"] = float(arr.mean())
             summary[f"{metric}_std"] = float(arr.std(ddof=1))
         summary_rows.append(summary)
-    pd.DataFrame(summary_rows).to_csv(output / "summary_metrics.csv", index=False)
+    summary_frame = pd.DataFrame(summary_rows)
+    summary_path = output / "summary_metrics.csv"
+    # Keep federated rows if the FedAvg runner was already completed. The
+    # FedAvg runner refreshes these rows after each federated experiment.
+    if summary_path.is_file():
+        previous_summary = pd.read_csv(summary_path)
+        if "scenario" in previous_summary:
+            previous_federated = previous_summary[
+                previous_summary["scenario"].isin(("fedavg_iid", "fedavg_location"))
+            ]
+            summary_frame = pd.concat(
+                [summary_frame, previous_federated], ignore_index=True, sort=False
+            )
+    summary_frame.to_csv(summary_path, index=False)
     print("Per-seed centralized and baseline results:")
     print(pd.DataFrame(rows).to_string(index=False))
     split_audit = results[0]["audit"]
@@ -145,11 +148,11 @@ if __name__ == "__main__":
         "split_method", "global_fallback_cutoff", "train_hour_range", "test_hour_range",
         "train_rows", "test_rows", "stops_total", "stops_split_per_stop",
         "stops_single_time_fallback", "stops_appearing_in_both")})
-    print("Per-stop train/test row counts written to results/per_stop_split_counts.csv")
+    print("Per-stop train/test row counts written to aiml/results/per_stop_split_counts.csv")
     print("\nPer-client training sample counts and class distributions by seed:")
     print(distribution_frame.to_string(index=False))
     print("\nMean and sample standard deviation across seeds:")
     print(pd.DataFrame(summary_rows).to_string(index=False))
-    print("\nPer-client results written to results/local_client_metrics.csv")
-    print("Per-client mean/std across seeds written to results/local_client_summary.csv")
-    print("Summary written to results/summary_metrics.csv")
+    print("\nPer-client results written to aiml/results/local_client_metrics.csv")
+    print("Per-client mean/std across seeds written to aiml/results/local_client_summary.csv")
+    print("Summary written to aiml/results/summary_metrics.csv")

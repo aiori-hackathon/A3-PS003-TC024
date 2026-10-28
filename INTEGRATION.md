@@ -100,12 +100,12 @@ Default state-dict keys and shapes:
 There are no BatchNorm buffers. Parameter count is `32 * input_dim + 577`.
 For this split, `input_dim=4097`, so each model has **131,681 parameters** and
 one float32 update is **526,724 bytes** (`131,681 * 4`). With four clients,
-one upload per client plus one full-model broadcast per client would be
-`8 * 526,724 = 4,213,792` raw bytes per round, excluding protocol overhead.
-This is a communication-size estimate, not a measured network transfer.
-Clients must use the same model constructor settings for state-dict averaging.
-`tests/test_pipeline.py` has a test-only average/load/predict check, not an
-aggregation implementation.
+the runner estimates **2,106,896 bytes client-to-server** and **2,106,896
+bytes server-to-client** per round, or **4,213,792 total bytes per round**.
+This counts one full upload and one full-model delivery per client and excludes
+transport overhead, compression, retries, and encryption. It is an estimate,
+not a measured network transfer. Clients must use identical model constructor
+settings for state-dict averaging.
 
 ## Config and baseline conventions
 
@@ -124,6 +124,7 @@ This workspace has no `config.py`. Suggested federated config mapping:
 | `epochs` | `60` |
 | `learning_rate` | `0.01` |
 | `loss_name` | `huber` |
+| `batch_size` | `None` (full batch, preserves reported run); set a positive integer for mini-batches |
 
 Centralized and client-local MLPs use the same architecture, loss, epochs,
 and learning rate. Each local model is evaluated on the shared full test set.
@@ -135,3 +136,38 @@ unweighted mean of client metrics per seed; cross-seed standard deviation is
 the sample standard deviation. These are not federated results. FedAvg,
 convergence tracking, and communication accounting remain for the federated
 runner.
+
+## Federated engine, evaluation, and communication
+
+`src/federated.py` implements client initialization from the current global
+model, local training, sample-weighted FedAvg aggregation, and global model
+updates over multiple rounds. `src/fedavg.py` keeps backward-compatible import
+names. `train_local` accepts `batch_size=None` for full-batch training or a
+positive integer for shuffled mini-batches; the experiment CLI exposes this as
+`--batch-size`. The default remains full-batch so the reported results retain
+their original training configuration.
+
+`src/evaluation.py` provides shared prediction, global, and per-client metrics
+(MAE, RMSE, rounded accuracy, and rounded macro-F1). The FedAvg runner logs
+global metrics each round and final global-model metrics for each client's
+held-out test partition. `src/communication.py` reports model size and
+separate client-to-server and server-to-client byte estimates per round and
+over the full run.
+
+`src/fedavg_experiment.py` runs IID and location-based Non-IID partitions for
+seeds 42/123/456. Defaults are four clients, 60 rounds, one local epoch per
+round, full-batch training, learning rate 0.01, and Huber loss. One local epoch
+per round gives 60 client data passes overall, matching the centralized and
+client-local baselines while aggregating after each pass.
+
+Run `python -m src.experiment` first to create centralized and client-local
+results, then run `python -m src.fedavg_experiment`. Add `--batch-size 512` to
+the latter command for 512-row mini-batches. FedAvg refreshes its two reference
+baselines using the same split and merges IID and location-based rows into
+`results/summary_metrics.csv`, preserving centralized and local-only rows.
+Outputs include `fedavg_seed_metrics.csv`, `fedavg_round_metrics.csv`,
+`fedavg_client_metrics.csv`, and `fedavg_client_distributions.csv` under
+`results/`. The runner also writes partition-specific copies to
+`experiments/iid/` and `experiments/non_iid/`, with a combined summary in
+`experiments/results/`. Focused engine tests are in
+`tests/test_federated.py` and the full suite runs with `python -m pytest -q`.

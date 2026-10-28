@@ -4,5 +4,11 @@ dist/
 __pycache__/
 .pytest_cache/
 .venv/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
 
 .DS_Store
+.venv-cpython/
