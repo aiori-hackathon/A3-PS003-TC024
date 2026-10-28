@@ -1,0 +1,13 @@
+seed,partition,client_id,sample_count,very_smooth,smooth,mild_congestion,heavy_congestion
+42,location,client_0,13450,4532,4429,2860,1629
+42,location,client_1,12794,4246,4151,2828,1569
+42,location,client_2,13156,4764,4371,2610,1411
+42,location,client_3,13335,4515,4701,2686,1433
+123,location,client_0,13450,4532,4429,2860,1629
+123,location,client_1,12794,4246,4151,2828,1569
+123,location,client_2,13156,4764,4371,2610,1411
+123,location,client_3,13335,4515,4701,2686,1433
+456,location,client_0,13450,4532,4429,2860,1629
+456,location,client_1,12794,4246,4151,2828,1569
+456,location,client_2,13156,4764,4371,2610,1411
+456,location,client_3,13335,4515,4701,2686,1433
