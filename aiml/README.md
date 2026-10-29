@@ -1,10 +1,10 @@
-# AIORI Traffic Intelligence — AI/ML Module
+# SynRoute — Federated AI for Traffic Intelligence
 
-This directory contains the Python AI/ML contribution: data preparation,
-congestion prediction, reproducible centralized and local-only experiments,
-client partitions, result artifacts, and a FastAPI adapter. The repository's
-shared Vite/React frontend stays at the root in `src/web/`; it calls the API
-at `http://localhost:8000/api` by default.
+This directory contains SynRoute's Python data pipeline, congestion model,
+reproducible centralized and federated experiments, saved result artifacts,
+and FastAPI adapter. The Vite/React frontend is in `src/web/` and calls the API
+at `http://localhost:8000/api` by default. The project studies historical Pune
+traffic records; it is not a live traffic service.
 
 ## Dataset and preprocessing
 
@@ -57,15 +57,31 @@ From the repository root, run:
 uvicorn aiml.backend.api:app --reload --host 127.0.0.1 --port 8000
 ```
 
-The API loads data and saved metrics from this module. Its `/api/...` routes
-and default port remain unchanged, so the root frontend's API calls continue
-to work without frontend code changes. `VITE_API_URL` can set another API
-origin; `AIORI_CORS_ORIGINS` configures allowed frontend origins.
+In a second terminal, start the React dashboard from the same repository root:
 
-## Incomplete capabilities
+```sh
+npm install
+npm run dev
+```
 
-IID and location-based partitions and independent local-only training are
-implemented. FedAvg aggregation, federated rounds, convergence tracking, and
-measured communication-cost evaluation are not implemented. The float32
-model update size in the integration notes is a parameter-size estimate, not
-a measured network transfer.
+Open `http://localhost:5173`; the API defaults to `http://localhost:8000`.
+The dashboard reports API reachability separately from successful overview
+and experiment data requests, and includes the failing endpoint when a request
+does not load.
+
+The API loads data and saved metrics from this module. It serves centralized,
+local-only, and FedAvg seed metrics, round histories, and model-size
+communication estimates from `results/` without launching experiments.
+`/api/federated/status` reports saved artifacts and explicitly indicates that
+they were not created during the current server session. Communication costs
+are parameter-size estimates, not measured transfers. `VITE_API_URL` can set
+another API origin; `AIORI_CORS_ORIGINS` configures allowed frontend origins.
+
+## Experiment execution
+
+FedAvg aggregation, round evaluation, and the CLI experiment runner are
+implemented in `src/federated.py` and `src/fedavg_experiment.py`. To create a
+new three-seed run, explicitly execute `python3 -m aiml.src.fedavg_experiment`
+from the repository root. This takes substantially longer than serving the
+dashboard. The API never starts training automatically. Communication values
+remain model-size estimates and are not measured network transfers.
