@@ -2,22 +2,21 @@
 from __future__ import annotations
 
 import os
+import json
+import math
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-import numpy as np
-import pandas as pd
-import torch
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from aiml.src.data_utils import DEFAULT_DATA_PATH, prepare_data
-from aiml.src.models import CongestionMLP, predict, seed_everything, train_local
-
 ROOT = Path(__file__).resolve().parents[1]
 RESULTS = ROOT / "results"
+DATASET = ROOT / "dataset" / "pune_traffic.csv"
+ARTIFACTS = Path(__file__).with_name("artifacts")
 LABELS = ["Very smooth", "Smooth", "Mild congestion", "Heavy congestion"]
 
 app = FastAPI(title="AIORI Traffic Intelligence API", version="1.0.0")
@@ -47,14 +46,19 @@ class PredictionRequest(BaseModel):
     model: Literal["centralized"] = "centralized"
 
 
-def _read_csv(name: str) -> pd.DataFrame:
+def _read_csv(name: str):
+    import pandas as pd
+
     path = RESULTS / name
     if not path.exists():
         raise HTTPException(404, f"Result artifact is unavailable: {name}")
     return pd.read_csv(path)
 
 
-def _json_records(frame: pd.DataFrame) -> list[dict]:
+def _json_records(frame) -> list[dict]:
+    import numpy as np
+    import pandas as pd
+
     records = frame.to_dict(orient="records")
     for record in records:
         for key, value in record.items():
@@ -76,61 +80,41 @@ def _records(name: str) -> list[dict]:
 
 
 @lru_cache(maxsize=1)
-def _data():
-    if not DEFAULT_DATA_PATH.exists():
-        raise HTTPException(503, "Traffic dataset is unavailable")
-    return prepare_data(DEFAULT_DATA_PATH, seed=42)
+def _runtime_metadata() -> dict:
+    try:
+        return json.loads((ARTIFACTS / "overview.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(503, "Runtime metadata artifact is unavailable") from exc
 
 
 @lru_cache(maxsize=1)
 def _trained_predictor():
-    data = _data()
-    seed_everything(42)
-    model = CongestionMLP(data.X_train.shape[1])
-    train_local(model, data.X_train, data.y_train, epochs=60, learning_rate=0.01, loss_name="huber")
+    import torch
+
+    from aiml.src.models import CongestionMLP
+
+    metadata = _runtime_metadata()
+    model = CongestionMLP(len(metadata["location_vocab"]) + 2)
+    state = torch.load(ARTIFACTS / "predictor.pt", map_location="cpu", weights_only=True)
+    model.load_state_dict(state)
     model.eval()
     return model
 
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "dataset_available": DEFAULT_DATA_PATH.exists(),
+    return {"status": "ok", "dataset_available": DATASET.exists(),
             "results_available": (RESULTS / "summary_metrics.csv").exists()}
 
 
 @app.get("/api/overview")
 def overview():
-    data = _data()
-    summary = _read_csv("summary_metrics.csv")
-    central = summary.loc[summary.scenario == "centralized"]
-    best = _json_records(central)[0] if len(central) else None
-    recent = _records("seed_metrics.csv") + _records("fedavg_seed_metrics.csv")
-    rounds = _records("fedavg_round_metrics.csv")
-    fedavg_rows = _records("fedavg_seed_metrics.csv")
-    buckets = data.train_rows["_time"].dt.floor("15min")
-    counts = buckets.value_counts().sort_index()
-    trend = [{"time": t.strftime("%H:%M"), "observations": int(v)} for t, v in counts.items()]
-    observed_range = {
-        "start": data.train_rows["_time"].min().strftime("%H:%M:%S"),
-        "end": data.train_rows["_time"].max().strftime("%H:%M:%S"),
-    }
-    return {"project": "AIORI Traffic Intelligence", "target": "Ordinal congestion category",
-            "labels": LABELS, "locations": len(data.location_vocab), "train_rows": len(data.train_rows),
-            "test_rows": len(data.test_rows), "feature_count": len(data.feature_names),
-            "split": data.audit["split_kind"], "observed_time_range": observed_range, "best_verified": best,
-            "experiments": recent, "observation_trend": trend,
-            "federated_available": bool(rounds),
-            "federated_rounds": max((int(row["round"]) for row in rounds if row.get("round") is not None), default=0),
-            "federated_partitions": sorted({row.get("partition") for row in rounds if row.get("partition")}),
-            "fedavg_summary": [row for row in _json_records(summary) if str(row.get("scenario", "")).startswith("fedavg_")],
-            "saved_fedavg_runs": sum(str(row.get("scenario", "")).startswith("fedavg_") for row in fedavg_rows),
-            "communication_measured": False}
+    return _runtime_metadata()["overview"]
 
 
 @app.get("/api/locations")
 def locations():
-    data = _data()
-    return {"locations": sorted(str(x) for x in data.train_rows["stop_id_from"].unique())}
+    return {"locations": _runtime_metadata()["location_ids"]}
 
 
 @app.get("/api/experiments")
@@ -193,25 +177,30 @@ def federated_status():
 
 @app.post("/api/predict")
 def prediction(request: PredictionRequest):
-    data = _data()
     try:
         location = int(request.location)
     except ValueError:
         raise HTTPException(422, "Select a valid traffic location ID")
-    if location not in data.location_vocab:
+    metadata = _runtime_metadata()
+    location_vocab = metadata["location_vocab"]
+    if str(location) not in location_vocab:
         raise HTTPException(422, "This location is not present in the training vocabulary")
     time_value = request.time if len(request.time) == 8 else request.time + ":00"
     try:
-        parsed = pd.to_datetime(time_value, format="%H:%M:%S", errors="raise")
+        parsed = datetime.strptime(time_value, "%H:%M:%S")
     except (ValueError, TypeError):
         raise HTTPException(422, "Time must be a valid 24-hour time")
     seconds = parsed.hour * 3600 + parsed.minute * 60 + parsed.second
-    angle = seconds * (2 * np.pi / 86400)
-    row = np.zeros((1, len(data.feature_names)), dtype=np.float32)
-    row[0, :2] = [np.sin(angle), np.cos(angle)]
-    row[0, 2 + data.location_vocab[location]] = 1
-    raw = float(predict(_trained_predictor(), torch.tensor(row)).item())
-    category_index = int(np.clip(np.rint(raw), 0, 3))
+    angle = seconds * (2 * math.pi / 86400)
+    import torch
+
+    row = torch.zeros((1, len(location_vocab) + 2), dtype=torch.float32)
+    row[0, 0] = math.sin(angle)
+    row[0, 1] = math.cos(angle)
+    row[0, 2 + location_vocab[str(location)]] = 1
+    with torch.inference_mode():
+        raw = float(_trained_predictor()(row).item())
+    category_index = int(min(3, max(0, round(raw))))
     return {"location": str(location), "time": parsed.strftime("%H:%M:%S"),
             "model": "centralized CongestionMLP (seed 42)", "raw_ordinal_score": raw,
             "category": LABELS[category_index], "category_index": category_index,

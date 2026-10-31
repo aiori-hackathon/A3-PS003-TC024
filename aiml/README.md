@@ -59,6 +59,18 @@ run the tests from an already activated virtual environment, use:
 python3 -m pytest -c aiml/pytest.ini aiml/tests -q
 ```
 
+After changing the dataset or saved experiment results, rebuild the compact API
+runtime artifacts on a development machine with sufficient memory:
+
+```sh
+.venv/bin/python -m aiml.backend.build_runtime_artifacts
+```
+
+This writes `aiml/backend/artifacts/overview.json` and `predictor.pt`. The
+builder uses the existing seed-42 data split and predictor training settings;
+it does not change experiment result CSVs. The Render service reads these
+artifacts and does not run the builder during startup or requests.
+
 ## Start the API
 
 From the repository root, run:
@@ -79,9 +91,10 @@ The dashboard reports API reachability separately from successful overview
 and experiment data requests, and includes the failing endpoint when a request
 does not load.
 
-The API loads data and saved metrics from this module. It serves centralized,
-local-only, and FedAvg seed metrics, round histories, and model-size
-communication estimates from `results/` without launching experiments.
+The API serves dashboard metadata and the seed-42 predictor from compact
+runtime artifacts, and serves centralized, local-only, and FedAvg seed
+metrics, round histories, and model-size communication estimates from
+`results/` without loading the traffic dataset for dashboard requests.
 `/api/federated/status` reports saved artifacts and explicitly indicates that
 they were not created during the current server session. Communication costs
 are parameter-size estimates, not measured transfers. `VITE_API_URL` can set
