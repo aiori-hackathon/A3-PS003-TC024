@@ -41,12 +41,22 @@ counts. Running the experiment explicitly regenerates these files.
 
 ## Install, test, and run experiments
 
-Run these commands from the repository root:
+For API development and tests, create a virtual environment and install the
+development requirements from the repository root. This includes all runtime
+dependencies and the `httpx` test client dependency:
 
 ```sh
-python3 -m pip install -r aiml/requirements.txt
+python3 -m venv .venv
+.venv/bin/python -m pip install -r aiml/requirements-dev.txt
+.venv/bin/python -m pytest -c aiml/pytest.ini aiml/tests -q
+.venv/bin/python -m aiml.src.experiment
+```
+
+For production/runtime-only installs, use `aiml/requirements.txt` instead. To
+run the tests from an already activated virtual environment, use:
+
+```sh
 python3 -m pytest -c aiml/pytest.ini aiml/tests -q
-python3 -m aiml.src.experiment
 ```
 
 ## Start the API

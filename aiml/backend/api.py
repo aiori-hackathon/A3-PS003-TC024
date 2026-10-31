@@ -21,10 +21,24 @@ RESULTS = ROOT / "results"
 LABELS = ["Very smooth", "Smooth", "Mild congestion", "Heavy congestion"]
 
 app = FastAPI(title="AIORI Traffic Intelligence API", version="1.0.0")
-origins = os.getenv("AIORI_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
-app.add_middleware(CORSMiddleware, allow_origins=[x.strip() for x in origins if x.strip()],
-                   allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2})(:\d+)?$",
-                   allow_credentials=False, allow_methods=["GET", "POST"], allow_headers=["*"])
+configured_origins = os.getenv(
+    "AIORI_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
+).split(",")
+origins = [x.strip() for x in configured_origins if x.strip()]
+if "https://synroute.vercel.app" not in origins:
+    origins.append("https://synroute.vercel.app")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_origin_regex=(
+        r"^https://[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.vercel\.app$|"
+        r"^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|10(?:\.\d{1,3}){3}|"
+        r"192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2})(:\d+)?$"
+    ),
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
+)
 
 
 class PredictionRequest(BaseModel):
